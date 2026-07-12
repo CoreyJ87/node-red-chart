@@ -76,6 +76,13 @@ Create the name of the sidecar-configmap
 {{- end }}
 
 {{/*
+Create the name of the settings-configmap
+*/}}
+{{- define "node-red.settingsConfigMapName" -}}
+{{ printf "%s-settings-cm" (include "node-red.fullname" $) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
 Create the name of the certificate
 */}}
 {{- define "node-red.certificateName" -}}

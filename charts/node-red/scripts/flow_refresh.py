@@ -4,14 +4,14 @@ import time
 import os
 import requests
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
 import json
 import sys
 import re
 
 # SET VARIABLES FROM CONTAINER ENVIRONMENT
 SLEEP_TIME_SIDECAR = 5 if os.getenv("SLEEP_TIME_SIDECAR") is None else int(
-    re.sub("[A-z]", "", os.getenv("SLEEP_TIME_SIDECAR")))
+    re.sub("[A-Za-z]", "", os.getenv("SLEEP_TIME_SIDECAR")))
 USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PASSWORD")
 URL = os.getenv("URL")
@@ -108,9 +108,10 @@ def main():
 
         for module in EXTRA_NODE_MODULES:
             if module not in modules_installed:
-                try:
-                    module_name, version = module.rsplit('/', 1)[-1].split('@', 1) if '@' in module else (module, None)
-                except:
+                # split a trailing @version while keeping npm scopes ("@scope/name@1.2.3") intact
+                if "@" in module[1:]:
+                    module_name, version = module.rsplit('@', 1)
+                else:
                     module_name, version = module, None
                 payload_node_module = ''
                 if version is not None:

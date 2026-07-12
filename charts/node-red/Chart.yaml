@@ -9,7 +9,9 @@ icon: https://nodered.org/about/resources/media/node-red-icon-2.png
 
 type: application
 
-version: 0.34.2
+kubeVersion: ">=1.19.0-0"
+
+version: 0.35.0
 appVersion: 4.0.9
 
 keywords:
@@ -27,10 +29,22 @@ maintainers:
     url: https://jobs.schwarz
 
 annotations:
-  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/containsSecurityUpdates: "true"
   artifacthub.io/changes: |
-    - Update k8s-sidecar to 1.30.5
-    - Update Node-Red to 4.0.9
+    - "[SECURITY] rbac.createClusterRole now requires explicit clusterRoleRules; the implicit wildcard (cluster-admin) default has been removed"
+    - Add automountServiceAccountToken value (default true, needed by the flow-refresh sidecar)
+    - Add NetworkPolicy and PodDisruptionBudget templates
+    - Add startupProbe, topologySpreadConstraints, priorityClassName values
+    - Add service.nodePort and service.extraPorts values
+    - Add settings.content to let the chart render the settings.js ConfigMap
+    - Add sidecar.env.usernameFromExistingSecret
+    - Harden the default sidecar securityContext to satisfy the restricted PodSecurity profile
+    - Fix nil pointer in certificates.yaml when ingress.tls entries have no certificate block
+    - Document replicaCount and fix imagePullSecrets default to a list
+    - Default deployment strategy to Recreate when persistence is enabled
+    - Fix port-forward instructions in NOTES.txt
+    - Fix scoped npm module handling and sleep-time parsing in flow_refresh.py
+    - Drop Ingress support for Kubernetes < 1.19 and declare kubeVersion >=1.19.0-0
   artifacthub.io/images: |
     - name: node-red
       image: docker.io/nodered/node-red:4.0.9

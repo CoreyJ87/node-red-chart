@@ -1,20 +1,13 @@
 {{- if .Values.rbac.createClusterRole }}
+{{- if not .Values.clusterRoleRules.enabled }}
+{{- fail "rbac.createClusterRole requires clusterRoleRules.enabled=true and an explicit clusterRoleRules.rules list. Granting an implicit wildcard ClusterRole is not supported." }}
+{{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ include "node-red.fullname" . }}
-  namespace: {{ .Release.Namespace | quote }}
   labels:
       {{- include "node-red.labels" . | nindent 4 }}
 rules:
-  {{- if .Values.clusterRoleRules.enabled }}
-    {{- toYaml .Values.clusterRoleRules.rules | nindent 2 }}
-  {{- else }}
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-  {{- end }}
+  {{- toYaml .Values.clusterRoleRules.rules | nindent 2 }}
 {{- end }}

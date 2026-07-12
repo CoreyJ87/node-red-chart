@@ -1,7 +1,8 @@
 {{$name := include "node-red.certificateName" . }}
 {{$namespace := .Release.Namespace }}
 {{- range $index, $value := .Values.ingress.tls }}
-{{- if $value.certificate.enabled }}
+{{- with $value.certificate }}
+{{- if .enabled }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -15,5 +16,6 @@ spec:
     {{- toYaml $value.certificate.issuerRef | nindent 4 }}
   secretName: {{ $value.secretName }}
 ---
+{{- end }}
 {{- end }}
 {{- end }}

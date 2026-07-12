@@ -3,7 +3,10 @@
 # Declare variables to be passed into your templates.
 
 
-# -- Specifies the strategy used to replace old Pods by new ones, default: `RollingUpdate`
+# -- Number of replicas. Note: with persistence on a ReadWriteOnce volume only 1 replica can mount it
+replicaCount: 1
+
+# -- Specifies the strategy used to replace old Pods by new ones, default: `RollingUpdate` (`Recreate` when persistence is enabled, to avoid a deadlock on ReadWriteOnce volumes)
 deploymentStrategy: ""
 image:
   # -- The image registry to pull from
@@ -23,7 +26,8 @@ rbac:
 
 
 # -- The image pull secrets
-imagePullSecrets: ""
+imagePullSecrets: []
+# - name: my-registry-secret
 
 # -- Provide a name in place of node-red
 nameOverride: ""
@@ -68,6 +72,9 @@ serviceAccount:
   # -- Service account name to use, when empty will be set to created account if
   name: ""
 
+# -- Whether to mount the ServiceAccount API token into the pod. The flow-refresh sidecar needs it to watch ConfigMaps; set to false if you run without the sidecar and your flows don't talk to the Kubernetes API
+automountServiceAccountToken: true
+
 # -- Pod annotations
 podAnnotations: {}
 
@@ -100,6 +107,14 @@ service:
   type: ClusterIP
   # -- Kubernetes port where service is exposed
   port: 1880
+  # -- Static node port to use when `service.type` is `NodePort` (leave empty for auto-assignment)
+  nodePort: ""
+  # -- Additional service ports, e.g. for TCP/UDP nodes running in your flows
+  extraPorts: []
+  # - name: mqtt
+  #   port: 1883
+  #   targetPort: 1883
+  #   protocol: TCP
   # -- Annotations for the service
   annotations: {}
 
@@ -192,24 +207,28 @@ ingress:
     # -- Name of the Issuer
     #     name: "test"
 
-# -- Liveness probe for the Deployment
+# -- Liveness probe for the Deployment. If you change `httpAdminRoot` in the settings, adjust the probe paths accordingly
 livenessProbe:
   httpGet:
     path: /
     port: http
 
-# -- Readiness probe for the Deployment
+# -- Readiness probe for the Deployment. If you change `httpAdminRoot` in the settings, adjust the probe paths accordingly
 readinessProbe:
   httpGet:
     path: /
     port: http
 
-# -- CPU/Memory resource requests/limits
+# -- Startup probe for the Deployment, protects slow-starting instances (e.g. many palette modules) from being killed by the liveness probe before they finish booting
+startupProbe: {}
+#  httpGet:
+#    path: /
+#    port: http
+#  failureThreshold: 30
+#  periodSeconds: 5
+
+# -- CPU/Memory resource requests/limits. Set to `{}` if you prefer not to constrain the pod
 resources:
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
   limits:
     cpu: 500m
     memory: 512Mi
@@ -231,6 +250,18 @@ terminationGracePeriodSeconds: 30
 # -- The affinity constraint
 affinity: {}
 
+# -- Topology spread constraints for pod assignment
+topologySpreadConstraints: []
+# - maxSkew: 1
+#   topologyKey: topology.kubernetes.io/zone
+#   whenUnsatisfiable: ScheduleAnyway
+#   labelSelector:
+#     matchLabels:
+#       app.kubernetes.io/name: node-red
+
+# -- Priority class name for the pod
+priorityClassName: ""
+
 # -- Extra Volumes for the pod
 extraVolumes:
 # - name: pv-claim
@@ -249,8 +280,13 @@ extraVolumeMounts:
 settings: {}
 # Details about the content of the settings.js, you can lookup under
 # https://nodered.org/docs/user-guide/runtime/settings-file
-# The ConfigMap should already exist and the key must be named `settings.js`
-#  name: settings-config
+# Either let the chart create the ConfigMap for you by setting `content`:
+#  content: |
+#    module.exports = {
+#      flowFile: 'flows.json',
+#      ...
+#    }
+# Or reference an existing ConfigMap with a key named `settings.js`:
 #  configMapName: settings-config
 
 # -- Labels to add to the node-red pod. default: {}
@@ -262,8 +298,29 @@ extraSidecars: []
 #    image: busybox
 #    command: ["/bin/sh", "-c", "echo hello from sidecar"]
 
+networkPolicy:
+  # -- Create a NetworkPolicy for the node-red pod
+  enabled: false
+  # -- Ingress rules for the NetworkPolicy. When empty, ingress is allowed from anywhere to the node-red ports
+  ingress: []
+  # - from:
+  #     - namespaceSelector:
+  #         matchLabels:
+  #           kubernetes.io/metadata.name: ingress-nginx
+  # -- Egress rules for the NetworkPolicy. When empty, egress is not restricted by this policy
+  egress: []
+
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget for the node-red pod
+  enabled: false
+  # -- Minimum number/percentage of pods that must remain available
+  minAvailable: 1
+  # -- Maximum number/percentage of pods that may be unavailable, mutually exclusive with `minAvailable`
+  maxUnavailable: ""
+
 
 ## -- Enable this and set the rules: to whatever custom rules you want for the Cluster Role resource.
+## Required when rbac.createClusterRole is true: the chart refuses to create a ClusterRole without explicit rules.
 clusterRoleRules:
   # -- Enable custom rules for the application controller's ClusterRole resource default: false
   enabled: false
@@ -288,6 +345,12 @@ sidecar:
     script: flow_refresh.py
     # The username for the API Call, check node-red documentation for more information
     username: ""
+    # -- Username from existing secret
+    usernameFromExistingSecret: {}
+    # -- Name of the secret that contains the username
+    #  name: node-red-api-admin-user
+    # -- Key of the secret that contains the username
+    #  key: username
     # -- Password as key value pair
     password: ""
     # -- Password from existing secret
@@ -302,15 +365,26 @@ sidecar:
   extraEnv: []
   # -- Resources for the sidecar
   resources: {}
-  # -- Security context for the sidecar
-  securityContext: {}
+  # -- Security context for the sidecar see [values.yaml](values.yaml)
+  securityContext:
+    privileged: false
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsUser: 10003
+    runAsGroup: 10003
+    seccompProfile:
+      type: RuntimeDefault
+    capabilities:
+      drop:
+        - ALL
   #  Image for the sidecar
   image:
     # -- The image registry to pull the sidecar from
     registry: quay.io
     # -- The image repository to pull from
     repository: kiwigrid/k8s-sidecar
-    # -- The image tag to pull, default: `1.28.4`
+    # -- The image tag to pull, default: `1.30.5`
     tag: 1.30.5
     # -- The image pull policy, default: `IfNotPresent`
     pullPolicy: IfNotPresent

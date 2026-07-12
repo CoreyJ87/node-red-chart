@@ -1,0 +1,12 @@
+{{- if .Values.settings.content }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "node-red.settingsConfigMapName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "node-red.labels" . | nindent 4 }}
+data:
+  settings.js: |
+    {{- .Values.settings.content | nindent 4 }}
+{{- end }}

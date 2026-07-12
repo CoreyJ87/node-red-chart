@@ -10,10 +10,14 @@ metadata:
   labels:
     {{- include "node-red.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount | default 1}}
+  replicas: {{ .Values.replicaCount | default 1 }}
   {{- if .Values.deploymentStrategy }}
   strategy:
     type: {{ .Values.deploymentStrategy }}
+  {{- else if .Values.persistence.enabled }}
+  {{- /* RollingUpdate deadlocks on ReadWriteOnce volumes: the new pod cannot mount until the old one is gone */}}
+  strategy:
+    type: Recreate
   {{- end }}
   selector:
     matchLabels:
@@ -35,6 +39,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "node-red.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken | default false }}
       {{- if .Values.podSecurityContext }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -70,9 +75,15 @@ spec:
           {{- end }}
           - name: URL
             value: {{ printf "http://%s.%s.svc.cluster.local:%d" (include "node-red.fullname" .) .Release.Namespace (.Values.service.port | int) }}
-          {{ if .Values.sidecar.env.username }}
+          {{- if .Values.sidecar.env.username }}
           - name: USERNAME
             value: {{ .Values.sidecar.env.username }}
+          {{- else if .Values.sidecar.env.usernameFromExistingSecret }}
+          - name: USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: {{ .Values.sidecar.env.usernameFromExistingSecret.key }}
+                name: {{ .Values.sidecar.env.usernameFromExistingSecret.name }}
           {{- end }}
           {{- if or .Values.sidecar.env.password .Values.sidecar.env.passwordFromExistingSecret }}
           - name: PASSWORD
@@ -145,14 +156,18 @@ spec:
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             {{- if and .Values.npmrc.enabled }}
             - name: npmrc-volume
               mountPath: /usr/src/node-red/.npmrc
               subPath: npmrc
             {{- end }}
-            {{- if .Values.settings }}
-            - name: {{ .Values.settings.name }}
+            {{- if or .Values.settings.content .Values.settings.configMapName }}
+            - name: settings
               mountPath: /data/settings.js
               subPath: settings.js
             {{- end }}
@@ -183,10 +198,10 @@ spec:
           configMap:
             name: {{ include "node-red.configMapName" . }}
         {{- end }}
-        {{- if .Values.settings }}
-        - name: {{ .Values.settings.name }}
+        {{- if or .Values.settings.content .Values.settings.configMapName }}
+        - name: settings
           configMap:
-            name: {{ .Values.settings.configMapName }}
+            name: {{ .Values.settings.configMapName | default (include "node-red.settingsConfigMapName" .) }}
         {{- end }}
         - name: data
           {{- if .Values.persistence.enabled }}
@@ -202,6 +217,13 @@ spec:
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
