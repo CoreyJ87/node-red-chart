@@ -20,13 +20,11 @@ keywords:
   - home
   - automation
 
+# Original chart authors: dirien (Engin Diri) and Kaktor (Felix Kammerer) of SchwarzIT — see https://github.com/SchwarzIT/node-red-chart
 maintainers:
-  - name: dirien
-    email: engin@pulumi.com
-    url: https://pulumi.com
-  - name: Kaktor
-    email: felix.kammerer@mail.schwarz
-    url: https://jobs.schwarz
+  - name: CoreyJ87
+    email: synik4l@gmail.com
+    url: https://github.com/CoreyJ87
 
 annotations:
   artifacthub.io/containsSecurityUpdates: "true"
@@ -52,10 +50,8 @@ annotations:
       image: quay.io/kiwigrid/k8s-sidecar:1.30.5
   artifacthub.io/license: Apache-2.0
   artifacthub.io/links: |
-    - name: website
-      url: https://jobs.schwarz
+    - name: original chart (SchwarzIT)
+      url: https://github.com/SchwarzIT/node-red-chart
   artifacthub.io/maintainers: |
-    - name: dirien
-      email: engin.diri@mail.schwarz
-    - name: Kaktor
-      email: felix.kammerer@mail.schwarz
+    - name: CoreyJ87
+      email: synik4l@gmail.com

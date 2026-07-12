@@ -2,77 +2,164 @@
 
 {{ template "chart.badgesSection" . }}
 
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/node-red&style=for-the-badge)](https://artifacthub.io/packages/search?repo=node-red)
-[![SIT](https://img.shields.io/badge/SIT-awesome-blueviolet.svg?style=for-the-badge)](https://jobs.schwarz)
-
 <img src="https://nodered.org/about/resources/media/node-red-icon-2.png" width="80" height="80">
 
 ## Description 📜
 
 {{ template "chart.description" . }}
 
-## Usage (via OCI Registry)
+This is a maintained fork of [SchwarzIT/node-red-chart](https://github.com/SchwarzIT/node-red-chart).
+Credit to the original authors [dirien](https://github.com/dirien) (Engin Diri) and [Kaktor](https://github.com/Kaktor) (Felix Kammerer).
 
-To install the chart using the OCI artifact, run:
+## Prerequisites 🧱
+
+- Kubernetes >= 1.19
+- Helm 3
+- A PersistentVolume provisioner (only if `persistence.enabled=true`)
+- [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) (only if `metrics.serviceMonitor.enabled=true`)
+- [cert-manager](https://cert-manager.io/) (only if you use `ingress.tls[].certificate`)
+
+## Installing the Chart 📦
+
+Install straight from this repository:
 
 ```bash
-helm install node-red oci://ghcr.io/schwarzit/charts/node-red --version {{ .Version }}
+git clone https://github.com/CoreyJ87/node-red-chart.git
+helm install node-red ./node-red-chart/charts/node-red --namespace node-red --create-namespace
 ```
 
-## Usage
-Adding node-red repository
-Before installing any chart provided by this repository, add the node-red Charts Repository:
+Or point an ArgoCD Application at it:
 
-```bash
-helm repo add node-red https://schwarzit.github.io/node-red-chart/
-helm repo update
-```
-
-### Installing the Chart 📦
-To install the chart with the release name node-red run:
-
-```bash
-helm install node-red node-red/node-red --version {{ .Version }}
-```
-
-After a few seconds, node-red should be running.
-
-To install the chart in a specific namespace use following commands:
-
-```bash
-kubectl create ns node-red
-helm install node-red node-red/node-red --namespace node-red
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: node-red
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CoreyJ87/node-red-chart.git
+    targetRevision: main
+    path: charts/node-red
+    helm:
+      values: |
+        persistence:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: node-red
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
 ```
 
 > **Tip**: List all releases using `helm list`, a release is a name used to track a specific deployment
 
-### Uninstalling the Chart 🗑️
+## Upgrading ⬆️
 
-To uninstall the `node-red` deployment:
+### To 0.35.0
+
+- **`rbac.createClusterRole` no longer grants an implicit wildcard (cluster-admin) ClusterRole.** The render now fails unless you set `clusterRoleRules.enabled=true` and provide an explicit `clusterRoleRules.rules` list.
+- When `persistence.enabled=true` and no `deploymentStrategy` is set, the Deployment strategy now defaults to `Recreate` (a rolling update deadlocks on ReadWriteOnce volumes). Set `deploymentStrategy: RollingUpdate` to restore the old behavior.
+- The flow-refresh sidecar now ships a hardened default `securityContext` (non-root, no capabilities, read-only rootfs). Override `sidecar.securityContext` if your setup needs something else.
+- Kubernetes older than 1.19 is no longer supported.
+
+## Uninstalling the Chart 🗑️
 
 ```bash
 helm uninstall node-red
 ```
 
-The command removes all the Kubernetes components associated with the chart and deletes the release.
+The command removes all the Kubernetes components associated with the chart and deletes the release. Set `persistence.keepPVC=true` beforehand if you want the data volume to survive uninstall.
 
-{{ template "chart.valuesSection" . }}
+## Configuration examples 🔧
 
-Specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example,
+### Persistence
 
-```bash
-helm install node-red node-red/node-red --set image.tag=latest
+```yaml
+persistence:
+  enabled: true
+  storageClass: longhorn
+  size: 5Gi
+  keepPVC: true
 ```
 
-Alternatively, a YAML file that specifies the values for the parameters can be provided while installing the chart. For example,
+### Ingress with TLS (cert-manager)
 
-```bash
-helm install node-red node-red/node-red -f values.yaml
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: node-red.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: node-red-tls
+      hosts:
+        - node-red.example.com
+      certificate:
+        enabled: true
+        issuerRef:
+          kind: ClusterIssuer
+          name: letsencrypt
 ```
 
-> **Tip**: You can use the default [values.yaml](values.yaml)
+### Custom settings.js
+
+Let the chart render the ConfigMap for you:
+
+```yaml
+settings:
+  content: |
+    module.exports = {
+      flowFile: 'flows.json',
+      credentialSecret: process.env.NODE_RED_CREDENTIAL_SECRET,
+      httpAdminRoot: '/',
+    }
+```
+
+Or reference an existing ConfigMap that has a `settings.js` key:
+
+```yaml
+settings:
+  configMapName: my-settings-config
+```
+
+See the [Node-RED settings file documentation](https://nodered.org/docs/user-guide/runtime/settings-file) for all options.
+
+### Environment variables
+
+```yaml
+env:
+  - name: TZ
+    value: "Europe/Berlin"
+  - name: NODE_RED_ENABLE_PROJECTS
+    value: "true"
+envFrom:
+  - secretRef:
+      name: node-red-env
+```
+
+### NetworkPolicy and PodDisruptionBudget
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+```
 
 ## Monitoring 🌡️
+
 To enable the node-red prometheus monitoring capability, you need to install the node `node-red-contrib-prometheus-exporter`.
 For more details see [official documentation](https://flows.nodered.org/node/node-red-contrib-prometheus-exporter)
 
@@ -93,7 +180,7 @@ You just need to create a configmap/secret with your `node-red` flow.json and an
 Default values are: `node-red-settings:1`.
 
 The `k8s-sidecar` will then call the `node-red` api to reload the flows. This will be done via a script. To run this script successfully you need to provide the `username` and `password`
-of your admin user. The admin user needs to have the right to use the `node-red` API.
+of your admin user (inline, or via `usernameFromExistingSecret`/`passwordFromExistingSecret`). The admin user needs to have the right to use the `node-red` API.
 
 The `k8s-sidecar` can also call the `node-red` api to install additional node modules (npm packages) before refreshing or importing the flow.json. Specifying a version for a module is supported (s. example below).
 You need to list your flows required 'NODE_MODULES' in the `sidecar.extraNodeModules`: e.g.
@@ -102,14 +189,18 @@ You need to list your flows required 'NODE_MODULES' in the `sidecar.extraNodeMod
 sidecar:
  extraNodeModules:
     - node-red-contrib-xkeys_setunitid
-    - node-red-contrib-microsoft-teams-tasks
+    - "@flowfuse/node-red-dashboard@1.20.1"
     - node-red-contrib-json
 ```
 To install the node modules successfully, the node red pod needs access to the `npmrc.registry` to download the declaired modules/packages.
 
-## Contributing 🤝
+{{ template "chart.valuesSection" . }}
 
-### Contributing via GitHub
+Specify each parameter using the `--set key=value[,key=value]` argument to `helm install`, or provide a YAML file with `-f my-values.yaml`.
+
+> **Tip**: You can use the default [values.yaml](values.yaml)
+
+## Contributing 🤝
 
 Feel free to join. Checkout the [contributing guide](CONTRIBUTING.md)
 
