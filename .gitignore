@@ -1,3 +1,5 @@
 .idea
 /CLAUDE.md
 *.tgz
+/node-red-argocd-app.yaml
+/node-red-values.yaml
